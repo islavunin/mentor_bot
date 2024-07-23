@@ -6,13 +6,15 @@
 Basic example for a bot that uses inline keyboards. For an in-depth explanation, check out
  https://github.com/python-telegram-bot/python-telegram-bot/wiki/InlineKeyboard-Example.
 """
-from datetime import date
+from datetime import date, time
+
 import logging
 import configparser
 import json
 import pandas as pd
 
 from telegram import InlineKeyboardMarkup, Update
+from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -246,6 +248,22 @@ async def assess_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(message, reply_markup=reply_markup)
 
 
+async def post_daily_message(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Save data from admin chat with /start """
+    om_filter = "'Нет оценки' AND NOT IS_PARENT()"
+    df = get_om_mc(
+        'Удовлетворенность ментором',
+        view='4BOT',
+        formula=om_filter)
+    print(df)
+    user_chat_id = 74096627
+    await context.bot.send_message(
+        user_chat_id,
+        "Good morning, I'm on duty!",
+        parse_mode=ParseMode.HTML,
+    )
+
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Displays info on how to use the bot."""
     await update.message.reply_text("Use /start to test this bot.")
@@ -261,6 +279,10 @@ def main() -> None:
     application.add_handler(MessageHandler(hashtag_filter, login))
     application.add_handler(CommandHandler("mentor", assess_mentor))
     #application.add_handler(CommandHandler("help", help_command))
+    #from pytz import timezone
+    #    dt = time.dtime(hour=10, tzinfo=timezone('Europe/Moscow'))
+    #dt = time.dtime(hour=10)
+    #application.job_queue.run_daily(post_daily_message, dt, name='user_alert')
     # Run the bot until the user presses Ctrl-C
     application.run_polling(allowed_updates=Update.ALL_TYPES)
     #users_df
