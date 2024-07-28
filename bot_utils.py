@@ -90,8 +90,12 @@ def get_om_mc(mc_name, view=None, formula='TRUE'):
 
 def make_buttons(df, parent='Все области'):
     '''make_buttons'''
+    #parent = df[df.Code == parent].Entity.item()
     items = df[df.Parent == parent].Entity.values.tolist()
-    keyboard = [[{'text': i[:35], 'callback_data': i[:35]}] for i in items]
+    #c = df[df.Entity == i].Code.item()
+    keyboard = [[{'text': i, 'callback_data': 'comp_' + df[df.Entity == i].Code.item()}] for i in items]
+    if parent != 'Все области':
+        keyboard.append([{'text': 'Вернуться назад', 'callback_data': 'comp_back'}])
     return keyboard
 
 
@@ -188,12 +192,12 @@ def write_om_mc(mc_name, std_map, dimentions, post_data):
     return requests.post(WS_URL_FULL, json = post_body, timeout=5).json()
 
 
-def write_selection(om_user, selected_mentor):
+def write_selection(om_user, selected_mentor, domain):
     '''write_selection'''
-    #mc_name = "Удовлетворенность сотрудника ментором"
     mc_name = "Удовлетворенность ментором"
     std_map = {
-        "Selection":"Выбранный ментор текст"
+        "Selection":"Выбранный ментор текст",
+        "Domain":"Выбранная тема текст"
     }
     day = date.today().strftime("%d.%m.%Y")
     dimentions = {
@@ -217,6 +221,7 @@ def write_selection(om_user, selected_mentor):
         {
             "User": om_user,
             "Selection": selected_mentor,
+            "Domain": domain,
             "Day": day
         }
     ]
@@ -228,26 +233,27 @@ def make_mentor_message(mentor):
     mentor_name = mentor['name']
     mentor_grade = mentor['mentor_grade']
     key_skills = mentor['skills'].split(", ")
-    mentor_discord = mentor['discord']
+    #mentor_discord = mentor['discord']
     msg_start = f'''🙂 {mentor_name}
 Должность: 	{mentor_grade}
 📌 Ключевые навыки:'''
     for skill in key_skills:
         msg_start = msg_start + '\n - ' + skill
-    msg_end = f'\n Как связаться:	{mentor_discord}\n'
-    return msg_start + msg_end
+    #msg_end = f'Как связаться:	{mentor_discord}\n'
+    return msg_start + '\n'#+ msg_end
 
 
-def make_mentor_cards(mentors):
+def make_mentor_cards(mentors, code, dom):
     '''make_mentor_cards'''
-    message = 'Я нашел для тебя следующие варианты:\n'
+    message = f'Я нашел для тебя следующие варианты по теме "{dom}":\n'
     for mentor in mentors:
         message += '_______\n'
         message += make_mentor_message(mentor)
     message += '''_______
 ❔Если кто-то из менторов тебе подходит, нажми на кнопку с именем ниже, а я подскажу тебе следующие шаги. 
 ❔Если хочешь начать поиск заново, нажми /start'''
-    keyboard = [[{'text': m['name'], 'callback_data': 'men_' + m['discord']}] for m in mentors]
+    keyboard = []
+    keyboard = [[{'text': m['name'], 'callback_data': 'men_' + m['discord'] + '_' +  code}] for m in mentors]
     return message, keyboard
 
 
