@@ -9,6 +9,7 @@ Basic example for a bot that uses inline keyboards. For an in-depth explanation,
 from datetime import date #, time
 
 import logging
+from logging.handlers import RotatingFileHandler
 import configparser
 import json
 
@@ -42,18 +43,34 @@ TBOT_TOKEN = config.get('tgbot', 'TOKEN')
 comp_matrix = get_om_list('Области экспертизы для бота')
 users_df = get_om_mc('ML Users')
 
+
 # Enable logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.DEBUG,
-    filename='basic.log'
-)
+    filename='basic.log',
+    encoding='utf-8')
+
+#logger = logging.getLogger(__name__)
+#logger.setLevel(logging.DEBUG)
+#formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+#handler = RotatingFileHandler("basic.log",
+#                              mode='a',
+#                              maxBytes=1000000,
+#                              backupCount=1,
+#                              encoding='utf-8',
+#                              delay=0)
+#handler.setLevel(logging.DEBUG)
+#handler.setFormatter(formatter)
+
+#logger.addHandler(handler)
+
 # set higher logging level for httpx to avoid all GET and POST requests being logged
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.INFO)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.INFO)
-
 
 logger = logging.getLogger(__name__)
 
@@ -98,8 +115,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 f"{user}, прежде, чем подобрать нового эксперта, необходимо оценить работу ментора по предыдущему обращению 🧐")
                 await assess_mentor(update, context)
             else:
-                day = date.today().strftime("%d %b %y")
-                om_filter = f"ITEM(Users) = Users.{om_user.item()} AND ITEM(Days) = Days.{day}"
+                day = date.today().strftime("%#d %b %y")
+                om_filter = f"ITEM(Users) = Users.'{om_user.item()}' AND ITEM(Days) = Days.'{day}'"
                 #global assessment_df
                 logger.debug("get_om_mc('Удовлетворенность ментором'), filter: %s", om_filter)
                 assessment_df = get_om_mc(
@@ -137,7 +154,7 @@ async def edit_query_message(query, msg):
     await query.edit_message_text(text=msg)
 
 
-async def compententions_quiz(query, answer_list, tg_username, om_grade):
+async def compententions_quiz(query, answer_list, tg_username, om_user, om_grade):
     '''compententions_quiz'''
     code = answer_list[1]
     if code == 'back':
@@ -161,7 +178,7 @@ async def compententions_quiz(query, answer_list, tg_username, om_grade):
             df = get_om_mc('Данные для бота по ментору в разрезе грейдов', formula=om_formula)
             mentors = df['Данные'].item()
             mentors = json.loads(mentors.replace('\'', '"'))
-            msg, kb = make_mentor_cards(mentors, code, answer)
+            msg, kb = make_mentor_cards(om_user, mentors, code, answer)
             logger.debug("make_mentor_cards, %s", kb)
             reply_markup = InlineKeyboardMarkup(kb)
             await query.edit_message_text(text=
@@ -229,7 +246,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await assess(query, om_user, answer_list)
     #if user choosing quiz buttons
     elif answer_type == 'comp':
-        await compententions_quiz(query, answer_list, tg_username, om_grade)
+        await compententions_quiz(query, answer_list, tg_username, om_user, om_grade)
 
 
 async def login(update, context) -> None:

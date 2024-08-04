@@ -232,28 +232,36 @@ def make_mentor_message(mentor):
     '''make_mentor_cards'''
     mentor_name = mentor['name']
     mentor_grade = mentor['mentor_grade']
-    key_skills = mentor['skills'].split(", ")
+    key_skills = mentor['other_skills'].split(", ")
+    domains = mentor['skills'].split(", ")
     #mentor_discord = mentor['discord']
     msg_start = f'''🙂 {mentor_name}
 Должность: 	{mentor_grade}
 📌 Ключевые навыки:'''
     for skill in key_skills:
         msg_start = msg_start + '\n - ' + skill
+    msg_start += '\n📌 Ключевые отрасли:'
+    for dom in domains:
+        msg_start = msg_start + '\n - ' + dom
     #msg_end = f'Как связаться:	{mentor_discord}\n'
     return msg_start + '\n'#+ msg_end
 
 
-def make_mentor_cards(mentors, code, dom):
+def make_mentor_cards(om_user, mentors, code, dom):
     '''make_mentor_cards'''
+    keyboard = []
     message = f'Я нашел для тебя следующие варианты по теме "{dom}":\n'
-    for mentor in mentors:
-        message += '_______\n'
-        message += make_mentor_message(mentor)
+    i = 0
+    for m in mentors:
+        if m['user'] != om_user and i < 5:
+            message += '_______\n'
+            message += make_mentor_message(m)
+            keyboard.append([{'text': m['name'], 'callback_data': 'men_' + m['discord'] + '_' +  code}])
+            i += 1
     message += '''_______
 ❔Если кто-то из менторов тебе подходит, нажми на кнопку с именем ниже, а я подскажу тебе следующие шаги. 
 ❔Если хочешь начать поиск заново, нажми /start'''
-    keyboard = []
-    keyboard = [[{'text': m['name'], 'callback_data': 'men_' + m['discord'] + '_' +  code}] for m in mentors]
+    #keyboard = [[{'text': m['name'], 'callback_data': 'men_' + m['discord'] + '_' +  code}] for m in mentors]
     return message, keyboard
 
 
