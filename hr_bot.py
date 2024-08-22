@@ -1,15 +1,7 @@
-#!/usr/bin/env python
-# pylint: disable=unused-argument
-# This program is dedicated to the public domain under the CC0 license.
-
-"""
-Basic example for a bot that uses inline keyboards. For an in-depth explanation, check out
- https://github.com/python-telegram-bot/python-telegram-bot/wiki/InlineKeyboard-Example.
-"""
 from datetime import date #, time
 
 import logging
-from logging.handlers import RotatingFileHandler
+#from logging.handlers import RotatingFileHandler
 import configparser
 import json
 
@@ -90,11 +82,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = '@' + update.effective_user.username
     user_id = update.effective_user.id
     req = get_chat_member(user_id)
+    logger.debug("get_chat_member, %s", req)
     #check if user in OT chat
     if not req['ok']:
         await update.message.reply_text(
             f"Привет, {user}! Этим ботом могут пользоваться только сотрудники ОТ и ОМ, которые состоят в корпоративном чате 😉")
-    elif req['result']['status'] == 'kicked':
+    elif req['result']['status'] == 'kicked' or req['result']['status'] == 'left':
         await update.message.reply_text(
             f"Привет, {user}! Ты был удален из корпоративного чата ГК Оптимакрос. К сожалению, ты не можешь воспользоваться ботом 😔")
     else:
@@ -115,14 +108,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 f"{user}, прежде, чем подобрать нового эксперта, необходимо оценить работу ментора по предыдущему обращению 🧐")
                 await assess_mentor(update, context)
             else:
-                day = date.today().strftime("%#d %b %y")
-                om_filter = f"ITEM(Users) = Users.'{om_user.item()}' AND ITEM(Days) = Days.'{day}'"
+                day = date.today().strftime("%d/%m/%y")
+                om_filter = f"ITEM(Users) = Users.'{om_user.item()}' AND ITEM(Days) = DAY(DATE(\"{day}\"))"
                 #global assessment_df
                 logger.debug("get_om_mc('Удовлетворенность ментором'), filter: %s", om_filter)
                 assessment_df = get_om_mc(
                     'Удовлетворенность ментором',
                     view='4BOT',
                     formula=om_filter)
+                logger.debug(assessment_df)
                 if assessment_df['Выбранный ментор текст'].item() != "":
                     await update.message.reply_text(
                     f"{user}, в день не больше одного ментора!")
@@ -154,7 +148,7 @@ async def edit_query_message(query, msg):
     await query.edit_message_text(text=msg)
 
 
-async def compententions_quiz(query, answer_list, tg_username, om_user, om_grade):
+async def compententions_quiz(context, query, answer_list, tg_username, om_user, om_grade):
     '''compententions_quiz'''
     code = answer_list[1]
     if code == 'back':
@@ -163,6 +157,12 @@ async def compententions_quiz(query, answer_list, tg_username, om_user, om_grade
         await query.edit_message_reply_markup(reply_markup=reply_markup)
     else:
         answer = comp_matrix[comp_matrix['Code'] == code]['Entity'].item()
+        payload = {
+            tg_username: {
+                "domain": answer,
+            }
+        }
+        context.bot_data.update(payload)
         logger.debug('Comp answer is %s, code is %s', answer, code)
         if not comp_matrix[comp_matrix.Parent == answer].empty:
             keyboard = make_buttons(comp_matrix, answer)
@@ -190,8 +190,12 @@ async def mentors_quiz(query, answer_list, om_user):
     '''mentors_quiz'''
     dis_name = answer_list[1]
     domain = comp_matrix[comp_matrix['Code'] == answer_list[2]]['Entity'].item()
-    name = users_df[users_df['discord'] == dis_name]['name'].item()
-    msg = f'''Ментор по теме "{domain}" выбран - {name}!
+    if dis_name == 'own':
+        msg = f'👉Напиши точный дискорд-ник ментора, к которому ты хочешь обратиться (без @) по теме {domain}'
+        await query.edit_message_text(text=msg)
+    else:
+        name = users_df[users_df['discord'] == dis_name]['name'].item()
+        msg = f'''Ментор по теме "{domain}" выбран - {name}!
 📩 Связаться с ментором можно в Discord - {dis_name}
 
 1. Опиши свой кейс.
@@ -200,20 +204,72 @@ async def mentors_quiz(query, answer_list, om_user):
 ФА/ТА/Этап для встречи: OT_Прочие HR активности 2024, Прочие HR активности, Наставничество.
 3. После решения вопроса нужно будет оценить работу с ментором по 5-бальной шкале, где 5 - наивысшая оценка (вопрос решен полностью, взаимодйствие было комфортным). 
 👉 Для оценки ментора используй команду /mentor'''
-    await query.edit_message_text(text=msg)
-    write_selection(om_user, name, domain)
+        await query.edit_message_text(text=msg)
+        write_selection(om_user, name, domain)
 
 
-async def assess(query, om_user, answer_list):
+async def own_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    '''own_mentor'''
+    user = '@' + update.effective_user.username
+    discord = update.message.text
+    bot_data = context.bot_data[user[1:]]
+    logging.debug("bot data %s", bot_data)
+    domain = bot_data['domain']
+    code = comp_matrix[comp_matrix.Entity == domain].Code.item()
+    logger.debug('discord name: %s', discord)
+    if users_df['discord'].isin([discord]).any():
+        mentor_df = users_df[users_df['discord'] == discord]
+        logger.debug('is_mentor: %s', mentor_df.is_mentor.item())
+        if mentor_df.is_mentor.item() == '1':
+            mentor_name = mentor_df['name'].item()
+            skills = mentor_df['key_skills'].item().split(', ')
+            message = f'''Я нашел ментора:
+_______
+🙂 {mentor_name}
+Должность: {mentor_df['Грейд'].item()}
+📌 Ключевые навыки: 
+- {skills[0]}
+- {skills[1]}
+- {skills[2]}
+_______
+❔Если ментор тебе подходит, нажми на кнопку с именем ниже, а я подскажу тебе следующие шаги. 
+❔Если хочешь начать поиск заново, нажми /start'''
+            keyboard = [[{'text': mentor_name, 'callback_data': 'men_' + discord + '_' +  code }],
+                        [{'text': "Начать с начала", 'callback_data': 'repeat' }]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(message, reply_markup=reply_markup)
+        else:
+            txt = f'''{user}, прости, этот сотрудник не является ментором. Я не могу зарегистрировать обращение к нему 😔
+Если хочешь начать поиск заново, нажми /start'''
+            await update.message.reply_text(txt)
+    else:
+        txt = '''Хм, такого пользователя не существует! 🧐 
+Напиши, пожалуйста, корректный дискорд-ник.'''
+        await update.message.reply_text(txt)
+
+
+async def assess_time(query, answer):
     '''assess'''
+    q_list = ["до 30 мин", "30 мин - 1 час", "1-2 часа", "2-3 часа", "3-4 часа"]
+    answer = 'end' + answer
+    message = '👉Какое время потребовалось ментору для помощи?'
+    await query.edit_message_text(text=message)
+    keyboard = [[{'text': q_list[i], 'callback_data': f"{answer}_{i+1}" }] for i in range(5)]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_reply_markup(reply_markup=reply_markup)
+
+
+async def end_assess(query, om_user, answer_list):
+    '''assess_time'''
     assessment = answer_list[1]
     day = answer_list[2]
+    time = answer_list[3]
     await query.edit_message_text(text='❤️Спасибо за оценку!')
     keyboard = [[{'text': 'Спасибо!', 'callback_data': 'finish'}],
                 [{'text': 'Найти нового ментора.', 'callback_data': 'repeat'}]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_reply_markup(reply_markup=reply_markup)
-    write_assessment(om_user, day, assessment)
+    write_assessment(om_user, day, assessment, time)
 
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -243,10 +299,13 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await mentors_quiz(query, answer_list, om_user)
     #if user choosed assessment for mentor
     elif answer_type == 'assess':
-        await assess(query, om_user, answer_list)
+        await assess_time(query, answer)
+    #if user choosed time assessment
+    elif answer_type == 'endassess':
+        await end_assess(query, om_user, answer_list)
     #if user choosing quiz buttons
     elif answer_type == 'comp':
-        await compententions_quiz(query, answer_list, tg_username, om_user, om_grade)
+        await compententions_quiz(context, query, answer_list, tg_username, om_user, om_grade)
 
 
 async def login(update, context) -> None:
@@ -304,20 +363,25 @@ async def assess_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(message, reply_markup=reply_markup)
 
 
-async def post_daily_message(context: ContextTypes.DEFAULT_TYPE) -> None:
+async def post_daily_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """post_daily_message"""
     om_filter = "'Нет оценки' AND NOT IS_PARENT()"
     df = get_om_mc(
         'Удовлетворенность ментором',
         view='4BOT',
         formula=om_filter)
-    print(df)
-    user_chat_id = 74096627
-    await context.bot.send_message(
-        user_chat_id,
-        "Good morning, I'm on duty!",
-        parse_mode=ParseMode.HTML,
-    )
+    logger.debug('Нет оценки: \n %s', df)
+    txt = '''Доброе утро! Просьба оценить работу ментора по предыдущему обращению 🧐, если работа была завершена.
+👉 Для оценки ментора используй команду /mentor'''
+    if not df.empty:
+        for index in df.index:
+            logger.debug('df.row(): \n %s', df.loc[index, :])
+            user_chat_id = df.loc[index, :]['Telegram_id']
+            await context.bot.send_message(
+                user_chat_id,
+                txt,
+                parse_mode=ParseMode.HTML,
+            )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -331,10 +395,15 @@ def main() -> None:
     application = Application.builder().token(TBOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button))
-    hashtag_filter = filters.Regex('@optiteam.ru')
-    application.add_handler(MessageHandler(hashtag_filter, login))
+    email_filter = filters.Regex('@optiteam.ru')
+    application.add_handler(MessageHandler(email_filter, login))
+    discord_filter = filters.Regex(r'^[^\/][a-z]{4,20}')
+    application.add_handler(MessageHandler(discord_filter, own_mentor))
     application.add_handler(CommandHandler("mentor", assess_mentor))
+    application.add_handler(CommandHandler("alert", post_daily_message))
+
     #application.add_handler(CommandHandler("help", help_command))
+    
     #from pytz import timezone
     #    dt = time.dtime(hour=10, tzinfo=timezone('Europe/Moscow'))
     #dt = time.dtime(hour=10)

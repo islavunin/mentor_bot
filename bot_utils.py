@@ -258,6 +258,7 @@ def make_mentor_cards(om_user, mentors, code, dom):
             message += make_mentor_message(m)
             keyboard.append([{'text': m['name'], 'callback_data': 'men_' + m['discord'] + '_' +  code}])
             i += 1
+    keyboard.append([{'text': 'Свой вариант', 'callback_data': 'men_' + 'own' + '_' +  code}])
     message += '''_______
 ❔Если кто-то из менторов тебе подходит, нажми на кнопку с именем ниже, а я подскажу тебе следующие шаги. 
 ❔Если хочешь начать поиск заново, нажми /start'''
@@ -265,11 +266,12 @@ def make_mentor_cards(om_user, mentors, code, dom):
     return message, keyboard
 
 
-def write_assessment(om_user, day, assessment):
+def write_assessment(om_user, day, assessment, time):
     '''write_assessment'''
     mc_name = "Удовлетворенность ментором"
     std_map = {
-        "Selection":"Оценка (от 1 до 5)"
+        "Selection":"Оценка (от 1 до 5)",
+        "Time":"Оценка времени"
     }
     #day = date.today().strftime("%d.%m.%Y")
     dimentions = {
@@ -288,6 +290,7 @@ def write_assessment(om_user, day, assessment):
         {
             "User": om_user,
             "Selection": assessment,
+            "Time": time,
             "Day": day
         }
     ]
@@ -300,8 +303,5 @@ def main():
 
 
 if __name__ == "__main__":
-    #BOT_POLLING = True
-    #while BOT_POLLING:
     main()
-    #sleep(3)
-    #pass
+
