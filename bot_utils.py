@@ -1,9 +1,10 @@
 '''Main'''
 from time import sleep
-from datetime import date
+#from datetime import date
 import configparser
 import requests
 import pandas as pd
+import httpx
 #import asyncio
 
 config = configparser.ConfigParser()
@@ -168,7 +169,7 @@ def reg_user_in_om(om_user, tg_id, tg_login):
     return write_om_mc(mc_name, std_map, dimentions, post_data)
 
 
-def write_om_mc(mc_name, std_map, dimentions, post_data):
+def write_om_mc(mc_name, std_map, dimensions, post_data):
     '''write_om_list'''
     post_body = {
     "SRC": {
@@ -183,7 +184,7 @@ def write_om_mc(mc_name, std_map, dimentions, post_data):
           'TRANSFORM': {
               'CHARSET': "WINDOWS-1251", #"UTF-8"
               'SRC_TO_DEST_COLUMN_MAP': std_map,
-              'DIMENSIONS': dimentions,
+              'DIMENSIONS': dimensions,
           },
       }
     },
@@ -192,15 +193,15 @@ def write_om_mc(mc_name, std_map, dimentions, post_data):
     return requests.post(WS_URL_FULL, json = post_body, timeout=5).json()
 
 
-def write_selection(om_user, selected_mentor, domain):
+def write_selection(om_user, selected_mentor, domain, day):
     '''write_selection'''
     mc_name = "Удовлетворенность ментором"
     std_map = {
         "Selection":"Выбранный ментор текст",
         "Domain":"Выбранная тема текст"
     }
-    day = date.today().strftime("%d.%m.%Y")
-    dimentions = {
+    #day = date.today().strftime("%d.%m.%Y")
+    dimensions = {
                   'dim1': {
                       'NAME': "Users",
                       'SRC_COLUMN_NAME': 'User',
@@ -225,7 +226,7 @@ def write_selection(om_user, selected_mentor, domain):
             "Day": day
         }
     ]
-    return write_om_mc(mc_name, std_map, dimentions, post_data)
+    return write_om_mc(mc_name, std_map, dimensions, post_data)
 
 
 def make_mentor_message(mentor):

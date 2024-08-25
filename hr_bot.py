@@ -1,9 +1,12 @@
-from datetime import date #, time
+'''Telegram bot for Optiteam mentor activity'''
 
+from datetime import date, time, datetime
 import logging
 #from logging.handlers import RotatingFileHandler
 import configparser
 import json
+from pytz import timezone
+
 
 from telegram import InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
@@ -119,13 +122,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 logger.debug(assessment_df)
                 if assessment_df['Выбранный ментор текст'].item() != "":
                     await update.message.reply_text(
-                    f"{user}, в день не больше одного ментора!")
+                    f"{user}, прости, можно подобрать не более одного ментора в день!")
                 else:
                     await comp_quiz(update, context)
         else:
             #sends a message to register
             await register(update, context)
-
+            
 
 async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Sends a message to register."""
@@ -141,6 +144,36 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 Также, если ты не против, мы запишем данные твоего телеграм-аккаунта в модель Human capital 
 и в следующий раз бот будет узнавать тебя автоматически'''
     await update.message.reply_text(message)
+
+
+async def login(update, context) -> None:
+    """Check login in OM model"""
+    om_user = update.message.text
+    tg_id = str(update.effective_user.id)
+    tg_username = str(update.effective_user.username)
+    user_df = users_df[users_df['Почта'] == om_user]
+    if user_df.empty:
+        msg = '''Хм, в модели нет такого пользователя! 🧐
+Напиши, пожалуйста, корректный адрес рабочей почты.'''
+        await update.message.reply_text(msg)
+    elif user_df.Telegram_id.item() and user_df.Telegram_id.item() != tg_id:
+        #msg = f'Данный email уже указал пользователь @{user_df.Telegram_login.item()}!'
+        msg = '''Хм, этот e-mail уже использован 🧐
+Напиши, пожалуйста, корректный адрес своей рабочей почты.'''
+        await update.message.reply_text(msg)
+    else:
+        reg_user_in_om(om_user, tg_id, tg_username)
+        await update.message.reply_text(
+                f"Подожди чуть-чуть, {tg_username}, составляем опросник!")
+        await comp_quiz(update, context)
+
+
+async def comp_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    '''comp_quiz'''
+    message = '👉 Укажи основную область, в которой тебе потребуется помощь ментора'
+    keyboard = make_buttons(comp_matrix)
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(message, reply_markup=reply_markup)
 
 
 async def edit_query_message(query, msg):
@@ -186,8 +219,8 @@ async def compententions_quiz(context, query, answer_list, tg_username, om_user,
             await query.edit_message_reply_markup(reply_markup=reply_markup)
 
 
-async def mentors_quiz(query, answer_list, om_user):
-    '''mentors_quiz'''
+async def mentors_choise(query, answer_list, om_user):
+    '''mentors_choise'''
     dis_name = answer_list[1]
     domain = comp_matrix[comp_matrix['Code'] == answer_list[2]]['Entity'].item()
     if dis_name == 'own':
@@ -203,9 +236,11 @@ async def mentors_quiz(query, answer_list, om_user):
 Вам выделяется 4 часа на решение запроса, их можно распределить как удобно.  
 ФА/ТА/Этап для встречи: OT_Прочие HR активности 2024, Прочие HR активности, Наставничество.
 3. После решения вопроса нужно будет оценить работу с ментором по 5-бальной шкале, где 5 - наивысшая оценка (вопрос решен полностью, взаимодйствие было комфортным). 
-👉 Для оценки ментора используй команду /mentor'''
+👉 Для оценки ментора используй команду /mentor
+Если разобрался сам или ошибся с выбором ментора, все равно пройди в меню оценки и выбери отмену'''
         await query.edit_message_text(text=msg)
-        write_selection(om_user, name, domain)
+        day = date.today().strftime("%d.%m.%Y")
+        write_selection(om_user, name, domain, day)
 
 
 async def own_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -248,6 +283,58 @@ _______
         await update.message.reply_text(txt)
 
 
+def get_assessment_df(user_id):
+    '''get_assessment_df'''
+    user_df = get_user_df(users_df, user_id)
+    om_user = user_df['Почта'].item()
+    om_formula = f"NAME(ITEM('Users')) = \"{om_user}\" AND 'Нет оценки' AND NOT IS_PARENT()"
+    logger.debug("get_om_mc('Удовлетворенность ментором', formula=%s)", om_formula)
+    assessment_df = get_om_mc(
+        'Удовлетворенность ментором',
+        view='4BOT',
+        formula=om_formula)
+    return [om_user, assessment_df]
+
+
+async def assess_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """assess_mentor"""
+    assessment_df = get_assessment_df(update.effective_user.id)[1]
+    if assessment_df.empty:
+        await update.message.reply_text("У тебя нет менторов для оценки")
+    else:
+        mentor = assessment_df['Выбранный ментор текст'].item()
+        day = assessment_df['Days'].item()
+        dom = assessment_df['Выбранная тема текст'].item()
+        #dom = comp_matrix[comp_matrix['Code'] == code]['Entity'].item()
+        message = f'''👉Оцени работу ментора {mentor} по теме {dom} по 5-бальной шкале,
+где 5 - наивысшая оценка (вопрос решен полностью, взаимодйствие было комфортным), 
+а 1 - вопрос не решен совсем.
+Если разобрался сам или ошибся с выбором ментора, то выбери вариант в самом низу'''
+        keyboard = [[{'text': i, 'callback_data': f"assess_{str(i)}_{day}" }] for i in range(1, 6)]
+        keyboard.append([{'text': 'Разобрался сам', 'callback_data': f"cancel_{day}" }])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(message, reply_markup=reply_markup)
+
+
+async def cancel_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """cancel_mentor"""
+    query = update.callback_query
+    df = get_assessment_df(update.effective_user.id)
+    assessment_df = df[1]
+    if assessment_df.empty:
+        await query.edit_message_text(text="Для отмены нет причин!")
+    else:
+        mentor = assessment_df['Выбранный ментор текст'].item()
+        day = assessment_df['Days'].item()
+        day = datetime.strptime(day, "%d %b %y").strftime("%d.%m.%y")
+        dom = assessment_df['Выбранная тема текст'].item()
+        message = f'''Выбор ментора {mentor} по теме {dom} отменен.
+Чтобы запустить процесс подбора ментора вновь, нажми /start'''
+        await query.edit_message_text(text=message)
+        name, domain = '', ''
+        write_selection(df[0], name, domain, day)
+
+
 async def assess_time(query, answer):
     '''assess'''
     q_list = ["до 30 мин", "30 мин - 1 час", "1-2 часа", "2-3 часа", "3-4 часа"]
@@ -263,13 +350,13 @@ async def end_assess(query, om_user, answer_list):
     '''assess_time'''
     assessment = answer_list[1]
     day = answer_list[2]
-    time = answer_list[3]
+    period = answer_list[3]
     await query.edit_message_text(text='❤️Спасибо за оценку!')
     keyboard = [[{'text': 'Спасибо!', 'callback_data': 'finish'}],
                 [{'text': 'Найти нового ментора.', 'callback_data': 'repeat'}]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_reply_markup(reply_markup=reply_markup)
-    write_assessment(om_user, day, assessment, time)
+    write_assessment(om_user, day, assessment, period)
 
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -296,74 +383,22 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await edit_query_message(query, '👉Нажми /start')
     #if user choosed mentor
     elif answer_type == 'men':
-        await mentors_quiz(query, answer_list, om_user)
+        await mentors_choise(query, answer_list, om_user)
     #if user choosed assessment for mentor
     elif answer_type == 'assess':
         await assess_time(query, answer)
     #if user choosed time assessment
     elif answer_type == 'endassess':
         await end_assess(query, om_user, answer_list)
+    #if user choosed cancellation
+    elif answer_type == 'cancel':
+        await cancel_mentor(update, context)
     #if user choosing quiz buttons
     elif answer_type == 'comp':
         await compententions_quiz(context, query, answer_list, tg_username, om_user, om_grade)
 
 
-async def login(update, context) -> None:
-    """Check login in OM model"""
-    om_user = update.message.text
-    tg_id = str(update.effective_user.id)
-    tg_username = str(update.effective_user.username)
-    user_df = users_df[users_df['Почта'] == om_user]
-    if user_df.empty:
-        msg = '''Хм, в модели нет такого пользователя! 🧐
-Напиши, пожалуйста, корректный адрес рабочей почты.'''
-        await update.message.reply_text(msg)
-    elif user_df.Telegram_id.item() and user_df.Telegram_id.item() != tg_id:
-        #msg = f'Данный email уже указал пользователь @{user_df.Telegram_login.item()}!'
-        msg = '''Хм, этот e-mail уже использован 🧐
-Напиши, пожалуйста, корректный адрес своей рабочей почты.'''
-        await update.message.reply_text(msg)
-    else:
-        reg_user_in_om(om_user, tg_id, tg_username)
-        await update.message.reply_text(
-                f"Подожди чуть-чуть, {tg_username}, составляем опросник!")
-        await comp_quiz(update, context)
-
-
-async def comp_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    '''comp_quiz'''
-    message = '👉 Укажи основную область, в которой тебе потребуется помощь ментора'
-    keyboard = make_buttons(comp_matrix)
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(message, reply_markup=reply_markup)
-
-
-async def assess_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """assess_mentor"""
-    user_df = get_user_df(users_df, update.effective_user.id)
-    om_user = user_df['Почта'].item()
-    om_formula = f"NAME(ITEM('Users')) = \"{om_user}\" AND 'Нет оценки' AND NOT IS_PARENT()"
-    logger.debug("get_om_mc('Удовлетворенность ментором', formula=%s)", om_formula)
-    assessment_df = get_om_mc(
-        'Удовлетворенность ментором',
-        view='4BOT',
-        formula=om_formula)
-    if assessment_df.empty:
-        await update.message.reply_text("У вас нет неоцененных менторов")
-    else:
-        mentor = assessment_df['Выбранный ментор текст'].item()
-        day = assessment_df['Days'].item()
-        dom = assessment_df['Выбранная тема текст'].item()
-        #dom = comp_matrix[comp_matrix['Code'] == code]['Entity'].item()
-        message = f'''👉Оцени работу ментора {mentor} по теме {dom} по 5-бальной шкале,
-где 5 - наивысшая оценка (вопрос решен полностью, взаимодйствие было комфортным), 
-а 1 - вопрос не решен совсем.'''
-        keyboard = [[{'text': i, 'callback_data': f"assess_{str(i)}_{day}" }] for i in range(1, 6)]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(message, reply_markup=reply_markup)
-
-
-async def post_daily_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def post_daily_message(context: ContextTypes.DEFAULT_TYPE) -> None:
     """post_daily_message"""
     om_filter = "'Нет оценки' AND NOT IS_PARENT()"
     df = get_om_mc(
@@ -371,14 +406,18 @@ async def post_daily_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
         view='4BOT',
         formula=om_filter)
     logger.debug('Нет оценки: \n %s', df)
-    txt = '''Доброе утро! Просьба оценить работу ментора по предыдущему обращению 🧐, если работа была завершена.
-👉 Для оценки ментора используй команду /mentor'''
     if not df.empty:
         for index in df.index:
+            
             logger.debug('df.row(): \n %s', df.loc[index, :])
-            user_chat_id = df.loc[index, :]['Telegram_id']
+            user_id = df.loc[index, :]['Telegram_id']
+            user = df.loc[index, :]['Telegram_login']
+            txt = f'''Привет, {user}! Не забудь оценить работу ментора по команде /mentor , где 5 - наивысшая оценка (вопрос решен полностью, взаимодйствие было комфортным), а 1 - вопрос не решен совсем.
+Если вы все еще в процессе решения кейса, напоминаю, что вам выделяется 4 часа для совместной работы, их можно распределить как удобно.  
+ФА/ТА/Этап для встречи: OT_Прочие HR активности 2024, Прочие HR активности, Наставничество.
+Если разобрался сам или ошибся с выбором ментора, то все равно пройди в меню оценки и выбери самый нижний вариант'''
             await context.bot.send_message(
-                user_chat_id,
+                user_id,
                 txt,
                 parse_mode=ParseMode.HTML,
             )
@@ -400,14 +439,13 @@ def main() -> None:
     discord_filter = filters.Regex(r'^[^\/][a-z]{4,20}')
     application.add_handler(MessageHandler(discord_filter, own_mentor))
     application.add_handler(CommandHandler("mentor", assess_mentor))
-    application.add_handler(CommandHandler("alert", post_daily_message))
-
+    application.add_handler(CommandHandler("cancel", cancel_mentor))
+    #application.add_handler(CommandHandler("alert", post_daily_message))
     #application.add_handler(CommandHandler("help", help_command))
     
-    #from pytz import timezone
-    #    dt = time.dtime(hour=10, tzinfo=timezone('Europe/Moscow'))
-    #dt = time.dtime(hour=10)
-    #application.job_queue.run_daily(post_daily_message, dt, name='user_alert')
+    # Run schedule job
+    dt = time(hour=14, minute=10, tzinfo=timezone('Europe/Moscow'))
+    application.job_queue.run_daily(post_daily_message, dt, name='user_alert')
     # Run the bot until the user presses Ctrl-C
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
