@@ -316,23 +316,25 @@ async def assess_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(message, reply_markup=reply_markup)
 
 
-async def cancel_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cancel_mentor(update) -> None:
     """cancel_mentor"""
     query = update.callback_query
-    df = get_assessment_df(update.effective_user.id)
-    assessment_df = df[1]
-    if assessment_df.empty:
-        await query.edit_message_text(text="Для отмены нет причин!")
-    else:
-        mentor = assessment_df['Выбранный ментор текст'].item()
-        day = assessment_df['Days'].item()
-        day = datetime.strptime(day, "%d %b %y").strftime("%d.%m.%y")
-        dom = assessment_df['Выбранная тема текст'].item()
-        message = f'''Выбор ментора {mentor} по теме {dom} отменен.
-Чтобы запустить процесс подбора ментора вновь, нажми /start'''
-        await query.edit_message_text(text=message)
-        name, domain = '', ''
-        write_selection(df[0], name, domain, day)
+    user_df = get_user_df(users_df, update.effective_user.id)
+    om_user = user_df['Почта'].item()
+    #df = get_assessment_df(update.effective_user.id)
+    #assessment_df = df[1]
+    #if assessment_df.empty:
+    #    await query.edit_message_text(text="Для отмены нет причин!")
+    #else:
+    #mentor = assessment_df['Выбранный ментор текст'].item()
+    #day = assessment_df['Days'].item()
+    day = query.data.split("_")[1]
+    day = datetime.strptime(day, "%d %b %y").strftime("%d.%m.%y")
+    #dom = assessment_df['Выбранная тема текст'].item()
+    message = 'Выбор ментора отменен. Чтобы запустить процесс подбора ментора вновь, нажми /start'
+    await query.edit_message_text(text=message)
+    name, domain = '', ''
+    write_selection(om_user, name, domain, day)
 
 
 async def assess_time(query, answer):
@@ -392,7 +394,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await end_assess(query, om_user, answer_list)
     #if user choosed cancellation
     elif answer_type == 'cancel':
-        await cancel_mentor(update, context)
+        await cancel_mentor(update)
     #if user choosing quiz buttons
     elif answer_type == 'comp':
         await compententions_quiz(context, query, answer_list, tg_username, om_user, om_grade)
@@ -408,19 +410,23 @@ async def post_daily_message(context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.debug('Нет оценки: \n %s', df)
     if not df.empty:
         for index in df.index:
-            
-            logger.debug('df.row(): \n %s', df.loc[index, :])
-            user_id = df.loc[index, :]['Telegram_id']
-            user = df.loc[index, :]['Telegram_login']
-            txt = f'''Привет, {user}! Не забудь оценить работу ментора по команде /mentor , где 5 - наивысшая оценка (вопрос решен полностью, взаимодйствие было комфортным), а 1 - вопрос не решен совсем.
+            udf = df.loc[index, :]
+            logger.debug('df.row(): \n %s', udf)
+            day = udf['Days']
+            dtdelta = datetime.today() - datetime.strptime(day, "%d %b %y")
+            if dtdelta.days >= 7:
+                user_id = udf['Telegram_id']
+                user = udf['Telegram_login']
+                txt = f'''Привет, {user}! Не забудь оценить работу ментора по команде /mentor,
+где 5 - наивысшая оценка (вопрос решен полностью, взаимодйствие было комфортным), а 1 - вопрос не решен совсем.
 Если вы все еще в процессе решения кейса, напоминаю, что вам выделяется 4 часа для совместной работы, их можно распределить как удобно.  
 ФА/ТА/Этап для встречи: OT_Прочие HR активности 2024, Прочие HR активности, Наставничество.
 Если разобрался сам или ошибся с выбором ментора, то все равно пройди в меню оценки и выбери самый нижний вариант'''
-            await context.bot.send_message(
-                user_id,
-                txt,
-                parse_mode=ParseMode.HTML,
-            )
+                await context.bot.send_message(
+                    user_id,
+                    txt,
+                    parse_mode=ParseMode.HTML,
+                )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -439,12 +445,12 @@ def main() -> None:
     discord_filter = filters.Regex(r'^[^\/][a-z]{4,20}')
     application.add_handler(MessageHandler(discord_filter, own_mentor))
     application.add_handler(CommandHandler("mentor", assess_mentor))
-    application.add_handler(CommandHandler("cancel", cancel_mentor))
+    #application.add_handler(CommandHandler("cancel", cancel_mentor))
     #application.add_handler(CommandHandler("alert", post_daily_message))
     #application.add_handler(CommandHandler("help", help_command))
     
     # Run schedule job
-    dt = time(hour=14, minute=10, tzinfo=timezone('Europe/Moscow'))
+    dt = time(hour=8, minute=48, tzinfo=timezone('Europe/Moscow'))
     application.job_queue.run_daily(post_daily_message, dt, name='user_alert')
     # Run the bot until the user presses Ctrl-C
     application.run_polling(allowed_updates=Update.ALL_TYPES)

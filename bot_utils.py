@@ -1,11 +1,10 @@
-'''Main'''
+'''Utils for Optiteam mentor bot'''
 from time import sleep
 #from datetime import date
 import configparser
 import requests
 import pandas as pd
-import httpx
-#import asyncio
+#import httpx
 
 config = configparser.ConfigParser()
 config.read('config.ini')
