@@ -46,6 +46,7 @@ logging.basicConfig(
     filename='basic.log',
     encoding='utf-8')
 
+# Set rotating logger
 #logger = logging.getLogger(__name__)
 #logger.setLevel(logging.DEBUG)
 #formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -61,7 +62,7 @@ logging.basicConfig(
 
 #logger.addHandler(handler)
 
-# set higher logging level for httpx to avoid all GET and POST requests being logged
+# Set higher logging level for httpx to avoid all GET and POST requests being logged
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.INFO)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -151,6 +152,7 @@ async def login(update, context) -> None:
     om_user = update.message.text
     tg_id = str(update.effective_user.id)
     tg_username = str(update.effective_user.username)
+    global users_df
     user_df = users_df[users_df['Почта'] == om_user]
     if user_df.empty:
         msg = '''Хм, в модели нет такого пользователя! 🧐
@@ -165,6 +167,7 @@ async def login(update, context) -> None:
         reg_user_in_om(om_user, tg_id, tg_username)
         await update.message.reply_text(
                 f"Подожди чуть-чуть, {tg_username}, составляем опросник!")
+        users_df = get_om_mc('ML Users')
         await comp_quiz(update, context)
 
 
@@ -321,16 +324,8 @@ async def cancel_mentor(update) -> None:
     query = update.callback_query
     user_df = get_user_df(users_df, update.effective_user.id)
     om_user = user_df['Почта'].item()
-    #df = get_assessment_df(update.effective_user.id)
-    #assessment_df = df[1]
-    #if assessment_df.empty:
-    #    await query.edit_message_text(text="Для отмены нет причин!")
-    #else:
-    #mentor = assessment_df['Выбранный ментор текст'].item()
-    #day = assessment_df['Days'].item()
     day = query.data.split("_")[1]
     day = datetime.strptime(day, "%d %b %y").strftime("%d.%m.%y")
-    #dom = assessment_df['Выбранная тема текст'].item()
     message = 'Выбор ментора отменен. Чтобы запустить процесс подбора ментора вновь, нажми /start'
     await query.edit_message_text(text=message)
     name, domain = '', ''
@@ -445,12 +440,10 @@ def main() -> None:
     discord_filter = filters.Regex(r'^[^\/][a-z]{4,20}')
     application.add_handler(MessageHandler(discord_filter, own_mentor))
     application.add_handler(CommandHandler("mentor", assess_mentor))
-    #application.add_handler(CommandHandler("cancel", cancel_mentor))
-    #application.add_handler(CommandHandler("alert", post_daily_message))
     #application.add_handler(CommandHandler("help", help_command))
     
     # Run schedule job
-    dt = time(hour=8, minute=48, tzinfo=timezone('Europe/Moscow'))
+    dt = time(hour=10, tzinfo=timezone('Europe/Moscow'))
     application.job_queue.run_daily(post_daily_message, dt, name='user_alert')
     # Run the bot until the user presses Ctrl-C
     application.run_polling(allowed_updates=Update.ALL_TYPES)

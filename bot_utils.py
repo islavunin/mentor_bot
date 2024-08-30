@@ -19,10 +19,9 @@ SERVICE_NAME = config.get('OM', 'SERVICE_NAME')
 WS_URL = WS_NAME + 'service/'+ SERVICE_NAME
 WS_URL_FULL = WS_URL + '?token=' + OM_TOKEN
 
-#bot_url = f'https://api.telegram.org/bot{TOKEN}/'
 
 def get_chat_member(user_id):
-    '''get_chat_member'''
+    '''Get information about user from OT chat'''
     method_url = f'getChatMember?chat_id={OT_CHAT_ID}&user_id={user_id}'
     url = f'https://api.telegram.org/bot{TOKEN}/' + method_url
     return requests.get(url, timeout=5).json()
@@ -36,7 +35,7 @@ def req_om_list(list_name):
 
 
 def req_om_mc(mc_name, view=None, formula='TRUE'):
-    '''Get OM'''
+    '''Request OM multicube'''
     body = {
         "SRC": {
             "TYPE": 'OM_MULTICUBE',
@@ -58,7 +57,7 @@ def req_om_mc(mc_name, view=None, formula='TRUE'):
 
 
 def get_om_response(req_answer):
-    '''Get responce from OM'''
+    '''Get response from OM'''
     #try if wrong token
     response_id = req_answer['params']['id']
     response_token = req_answer['params']['responseToken']
@@ -68,7 +67,6 @@ def get_om_response(req_answer):
     while bool_flag:
         sleep(1)
         r = requests.get(ws_resp_url, headers=headers, timeout=5)
-        #r = requests.get(ws_resp_url, timeout=5)
         if r.json()['type'] == 'ERROR':
             print('ERROR')
             break
@@ -77,22 +75,20 @@ def get_om_response(req_answer):
 
 
 def get_om_list(list_name):
-    '''get_om_list'''
+    '''Get OM list'''
     req_answer = req_om_list(list_name)
     return get_om_response(req_answer)
 
 
 def get_om_mc(mc_name, view=None, formula='TRUE'):
-    '''get_om_mc'''
+    '''Get OM multicube'''
     req_answer = req_om_mc(mc_name, view, formula)
     return get_om_response(req_answer)
 
 
 def make_buttons(df, parent='Все области'):
-    '''make_buttons'''
-    #parent = df[df.Code == parent].Entity.item()
+    '''Make keyboard for domain quiz'''
     items = df[df.Parent == parent].Entity.values.tolist()
-    #c = df[df.Entity == i].Code.item()
     keyboard = [[{'text': i, 'callback_data': 'comp_' + df[df.Entity == i].Code.item()}] for i in items]
     if parent != 'Все области':
         keyboard.append([{'text': 'Вернуться назад', 'callback_data': 'comp_back'}])
@@ -100,7 +96,7 @@ def make_buttons(df, parent='Все области'):
 
 
 def write_om_list(url, list_name, std_map, post_data):
-    '''write_om_list'''
+    '''Write OM list'''
     post_body = {
     "SRC": {
         "TYPE": 'OM_WEB_SERVICE_PASSIVE',
@@ -122,26 +118,8 @@ def write_om_list(url, list_name, std_map, post_data):
     return requests.post(url, json = post_body, timeout=5).json()
 
 
-def reg_user_in_list(url, om_user, tg_id, tg_login):
-    '''reg_user_in_om'''
-    list_name = 'Users'
-    std_map = {
-        "User": "Item Name",
-        "tg_id": "tg_id",
-        "tg_login": "tg_login",
-    }
-    post_data = [
-        {
-            "User": om_user,
-            "tg_id": tg_id,
-            "tg_login": tg_login
-        }
-    ]
-    return write_om_list(url, list_name, std_map, post_data)
-
-
 def reg_user_in_om(om_user, tg_id, tg_login):
-    '''reg_user_in_om'''
+    '''Add information about user in HR model'''
     mc_name = 'ML Users'
     std_map = {
         "tg_id": "Telegram_id",
@@ -169,7 +147,7 @@ def reg_user_in_om(om_user, tg_id, tg_login):
 
 
 def write_om_mc(mc_name, std_map, dimensions, post_data):
-    '''write_om_list'''
+    '''Write data to OM multicube'''
     post_body = {
     "SRC": {
         "TYPE": 'OM_WEB_SERVICE_PASSIVE',
@@ -193,7 +171,7 @@ def write_om_mc(mc_name, std_map, dimensions, post_data):
 
 
 def write_selection(om_user, selected_mentor, domain, day):
-    '''write_selection'''
+    '''Write selected mentor to HR model'''
     mc_name = "Удовлетворенность ментором"
     std_map = {
         "Selection":"Выбранный ментор текст",
@@ -229,12 +207,11 @@ def write_selection(om_user, selected_mentor, domain, day):
 
 
 def make_mentor_message(mentor):
-    '''make_mentor_cards'''
+    '''Make massage wirh choosen mentors'''
     mentor_name = mentor['name']
     mentor_grade = mentor['mentor_grade']
     key_skills = mentor['other_skills'].split(", ")
     domains = mentor['skills'].split(", ")
-    #mentor_discord = mentor['discord']
     msg_start = f'''🙂 {mentor_name}
 Должность: 	{mentor_grade}
 📌 Ключевые навыки:'''
@@ -243,12 +220,11 @@ def make_mentor_message(mentor):
     msg_start += '\n📌 Ключевые отрасли:'
     for dom in domains:
         msg_start = msg_start + '\n - ' + dom
-    #msg_end = f'Как связаться:	{mentor_discord}\n'
-    return msg_start + '\n'#+ msg_end
+    return msg_start + '\n'
 
 
 def make_mentor_cards(om_user, mentors, code, dom):
-    '''make_mentor_cards'''
+    '''Make massage and keyboard with choosen mentors'''
     keyboard = []
     message = f'Я нашел для тебя следующие варианты по теме "{dom}":\n'
     i = 0
@@ -267,7 +243,7 @@ def make_mentor_cards(om_user, mentors, code, dom):
 
 
 def write_assessment(om_user, day, assessment, time):
-    '''write_assessment'''
+    '''Write mentor's assessment to HR model'''
     mc_name = "Удовлетворенность ментором"
     std_map = {
         "Selection":"Оценка (от 1 до 5)",
@@ -299,9 +275,8 @@ def write_assessment(om_user, day, assessment, time):
 
 def main():
     '''main'''
-    sleep(3)
+    #sleep(3)
 
 
 if __name__ == "__main__":
     main()
-
