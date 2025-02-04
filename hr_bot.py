@@ -81,6 +81,25 @@ def get_user_df(df, user_id):
     return df
 
 
+def get_user_data(update, context) -> dict:
+    '''Get user data'''
+    user_id = str(update.effective_user.id)
+    try:
+        user_data = context.bot_data[user_id]
+    except KeyError:
+        logger.debug("There is no user in bot data. Getting ML Users...")
+        data = get_om_mc('ML Users', result='json')
+        payload = {user['Telegram_id']: user for user in data if user['Telegram_id']}
+        payload['users_data'] = data
+        context.bot_data.update(payload)
+        try:
+            user_data = context.bot_data[user_id]
+        except KeyError:
+            logger.debug("2nd error")
+            user_data = 'register'
+    return user_data
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Sends a message with three inline buttons attached."""
     user = '@' + update.effective_user.username
@@ -97,42 +116,39 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     else:
         await update.message.reply_text(
                 f"Привет, {user}, подожди немного 🙏🏼")
-        global users_df
-        #logger.debug("get_om_mc('ML Users')")
-        users_df = get_om_mc('ML Users')
-        user_df = users_df[users_df.Telegram_id == str(update.effective_user.id)]
-        #user_df = get_user_df(users_df, user_id)
-        om_user = user_df['Почта']
-        #check if user had already connected before
-        if not om_user.empty:
-            #check if user had mentors today
-            #sends a competention quiz
-            if user_df['Нет оценки'].item() == "1":
-                await update.message.reply_text(
-                f"{user}, прежде, чем подобрать нового эксперта, необходимо оценить работу ментора по предыдущему обращению 🧐")
-                await assess_mentor(update, context)
-            else:
-                day = date.today().strftime("%d/%m/%y")
-                om_filter = f"ITEM(Users) = Users.'{om_user.item()}' AND ITEM(Days) = DAY(DATE(\"{day}\"))"
-                #global assessment_df
-                logger.debug("get_om_mc('Удовлетворенность ментором'), filter: %s", om_filter)
-                assessment_df = get_om_mc(
-                    'Удовлетворенность ментором',
-                    view='4BOT',
-                    formula=om_filter)
-                logger.debug(assessment_df)
-                if assessment_df['Выбранный ментор текст'].item() != "":
-                    await update.message.reply_text(
-                    f"{user}, прости, можно подобрать не более одного ментора в день!")
-                else:
-                    await comp_quiz(update, context)
-        else:
-            #sends a message to register
+
+        user_data = get_user_data(update, context)
+        if user_data == 'register':
             await register(update, context)
-            
+        #check if user had mentors today
+        elif user_data['Нет оценки'] == "1":
+            await update.message.reply_text(
+            f"{user}, прежде, чем подобрать нового эксперта, необходимо оценить работу ментора по предыдущему обращению 🧐")
+            await assess_mentor(update, context)
+        else:
+            #day = date.today().strftime("%d/%m/%y")
+            #om_user = user_data['Почта']
+            #om_filter = f"ITEM(Users) = Users.'{om_user}' AND ITEM(Days) = DAY(DATE(\"{day}\"))"
+            #global assessment_df
+            #logger.debug("get_om_mc('Удовлетворенность ментором'), filter: %s", om_filter)
+            #assessment_df = get_om_mc(
+            #    'Удовлетворенность ментором',
+            #    view='4BOT',
+            #    formula=om_filter)
+            #logger.debug(assessment_df)
+            #if assessment_df['Выбранный ментор текст'].item() != "":
+            if user_data['today_choise'] != "":
+                await update.message.reply_text(
+                f"{user}, прости, можно подобрать не более одного ментора в день!")
+            else:
+                #sends a competention quiz
+                await comp_quiz(update, context)
+
 
 async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Sends a message to register."""
+    logger.debug("Register...")
+
     # if user not in OT - All cons then "Вы не состоите в чате"
     message = '''Добро пожаловать в бота по поиску и подбору экспертов 
 среди сотрудников ОптиТим и Оптимакрос.
@@ -152,14 +168,21 @@ async def login(update, context) -> None:
     om_user = update.message.text
     tg_id = str(update.effective_user.id)
     tg_username = str(update.effective_user.username)
-    global users_df
-    user_df = users_df[users_df['Почта'] == om_user]
-    if user_df.empty:
+    
+    #global users_df
+    #user_df = users_df[users_df['Почта'] == om_user]
+    
+    users_data = context.bot_data['users_data']
+    user_data = [user for user in users_data if user['Почта'] == om_user][0]
+    logger.debug(user_data)
+    #if user_df.empty:
+    if len(user_data) == 0:
         msg = '''Хм, в модели нет такого пользователя! 🧐
 Напиши, пожалуйста, корректный адрес рабочей почты.'''
         await update.message.reply_text(msg)
-    elif user_df.Telegram_id.item() and user_df.Telegram_id.item() != tg_id:
-        #msg = f'Данный email уже указал пользователь @{user_df.Telegram_login.item()}!'
+    #elif user_df.Telegram_id.item() and user_df.Telegram_id.item() != tg_id:
+    elif user_data['Telegram_id'] and user_data['Telegram_id'] != tg_id:
+
         msg = '''Хм, этот e-mail уже использован 🧐
 Напиши, пожалуйста, корректный адрес своей рабочей почты.'''
         await update.message.reply_text(msg)
@@ -167,13 +190,16 @@ async def login(update, context) -> None:
         reg_user_in_om(om_user, tg_id, tg_username)
         await update.message.reply_text(
                 f"Подожди чуть-чуть, {tg_username}, составляем опросник!")
-        users_df = get_om_mc('ML Users')
+                
+        #users_df = get_om_mc('ML Users')
+        
         await comp_quiz(update, context)
 
 
 async def comp_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     '''comp_quiz'''
     message = '👉 Укажи основную область, в которой тебе потребуется помощь ментора'
+    logger.debug('make comp quiz')
     keyboard = make_buttons(comp_matrix)
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(message, reply_markup=reply_markup)
@@ -230,6 +256,7 @@ async def mentors_choise(query, answer_list, om_user):
         msg = f'👉Напиши точный дискорд-ник ментора, к которому ты хочешь обратиться (без @) по теме {domain}'
         await query.edit_message_text(text=msg)
     else:
+        
         name = users_df[users_df['discord'] == dis_name]['name'].item()
         msg = f'''Ментор по теме "{domain}" выбран - {name}!
 📩 Связаться с ментором можно в Discord - {dis_name}
@@ -365,9 +392,13 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Some clients may have trouble otherwise. See https://core.telegram.org/bots/api#callbackquery
     await query.answer()
     tg_username = str(update.effective_user.username)
-    user_df = get_user_df(users_df, update.effective_user.id)
-    om_user = user_df['Почта'].item()
-    om_grade = user_df['Грейд'].item()
+    user_data = get_user_data(update, context)
+    om_user = user_data['Почта']
+    om_grade = user_data['Грейд']
+    #user_df = get_user_df(users_df, update.effective_user.id)
+    #om_user = user_df['Почта'].item()
+    #om_grade = user_df['Грейд'].item()
+
     answer_list = answer.split('_')
     answer_type = answer_list[0]
     #if user push final button

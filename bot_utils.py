@@ -42,7 +42,8 @@ def req_om_mc(mc_name, view=None, formula='TRUE'):
             "PARAMS": {
                 "NAME": mc_name,
                 "VIEW": view,
-                'FORMULA_FILTER': formula
+                'FORMULA_FILTER': formula,
+                'CHARSET': 'UTF-8'
             }
         },
         "DEST": {
@@ -59,6 +60,9 @@ def req_om_mc(mc_name, view=None, formula='TRUE'):
 def get_om_response(req_answer):
     '''Get response from OM'''
     #try if wrong token
+    if req_answer['type'] == 'ERROR':
+        print('OM API response type: ERROR, message: ', req_answer['params']['message'])
+        return {}
     response_id = req_answer['params']['id']
     response_token = req_answer['params']['responseToken']
     ws_resp_url = WS_URL + f'/response/{response_id}?responseToken={response_token}'
@@ -71,25 +75,46 @@ def get_om_response(req_answer):
             print('ERROR')
             break
         bool_flag =  r.json()['params']['status'] == 'IN_PROGRESS'
-    return pd.json_normalize(r.json()['params']['data']['requestedData'])
+    return r.json()['params']['data']['requestedData']
 
 
-def get_om_list(list_name):
+def get_om_list(list_name, result='df'):
     '''Get OM list'''
     req_answer = req_om_list(list_name)
-    return get_om_response(req_answer)
+    resp = get_om_response(req_answer)
+    if result == 'df':
+        resp = pd.json_normalize(resp)
+    return resp
 
 
-def get_om_mc(mc_name, view=None, formula='TRUE'):
+def get_om_mc(mc_name, view=None, formula='TRUE', result='df'):
     '''Get OM multicube'''
     req_answer = req_om_mc(mc_name, view, formula)
-    return get_om_response(req_answer)
+    print(req_answer)
+    resp = get_om_response(req_answer)
+    if result == 'df':
+        resp = pd.json_normalize(resp)
+    return resp
+
+
+def get_om_mc_json(mc_name, view=None, formula='TRUE'):
+    '''Get OM multicube'''
+    req_answer = req_om_mc(mc_name, view, formula)
+    resp = get_om_response(req_answer)
+    return resp
 
 
 def make_buttons(df, parent='Все области'):
     '''Make keyboard for domain quiz'''
+    #comp_matrix = get_om_list('Области экспертизы для бота', result='json')
+    #items_l = [l for l in comp_matrix if l['Parent'] == parent]
+    #print(items_l)
+    
     items = df[df.Parent == parent].Entity.values.tolist()
     keyboard = [[{'text': i, 'callback_data': 'comp_' + df[df.Entity == i].Code.item()}] for i in items]
+    
+    #keyboard_l = [[{'text': l['Entity'], 'callback_data': 'comp_' + l['Code']}] for l in items_l if l['Parent'] == parent]
+    #print(keyboard_l)
     if parent != 'Все области':
         keyboard.append([{'text': 'Вернуться назад', 'callback_data': 'comp_back'}])
     return keyboard
@@ -275,6 +300,11 @@ def write_assessment(om_user, day, assessment, time):
 
 def main():
     '''main'''
+    data = get_om_mc('ML Users', result='json')
+    #payload = {user['Telegram_id']: user for user in data if user['Telegram_id']}
+    print(WS_URL_FULL)
+    print(data)
+
     #sleep(3)
 
 
